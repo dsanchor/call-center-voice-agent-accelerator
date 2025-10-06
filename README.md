@@ -31,7 +31,7 @@ The solution includes:
 > You can also try the Voice Live API via [Azure AI Foundry](https://ai.azure.com/foundry) for quick experimentation before deploying this template to your own Azure subscription.
 
 ### Architecture diagram
-|![Architecture Diagram](./docs/images/architecture_v0.0.1.png)|
+|![Architecture Diagram](./docs/images/architecture_v0.0.2.png)|
 |---|
 
 <br/>
