@@ -20,12 +20,16 @@ app.config["ACS_DEV_TUNNEL"] = os.getenv("ACS_DEV_TUNNEL", "")
 app.config["AZURE_USER_ASSIGNED_IDENTITY_CLIENT_ID"] = os.getenv(
     "AZURE_USER_ASSIGNED_IDENTITY_CLIENT_ID", ""
 )
+app.config["ENABLE_ACS"] = os.getenv("ENABLE_ACS", "false").lower()
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s: %(message)s"
 )
 
-acs_handler = AcsEventHandler(app.config)
+if app.config["ENABLE_ACS"] != "false":
+    acs_handler = AcsEventHandler(app.config)
+else:
+    acs_handler = None
 
 
 @app.route("/acs/incomingcall", methods=["POST"])
