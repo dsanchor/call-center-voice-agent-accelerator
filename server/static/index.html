@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -35,6 +36,7 @@
       gap: 1rem;
       flex-wrap: wrap;
       justify-content: center;
+      align-items: center;
     }
 
     button {
@@ -47,27 +49,100 @@
     }
 
     #startBtn {
-      background-color: #0078d4;
+      background-color: #498fc5;
       color: white;
     }
 
+    #startBtn:disabled {
+      background-color: #a0c4e8;
+      cursor: not-allowed;
+    }
+
     #startBtn:hover {
-      background-color: #005ea0;
+      background-color: #1b6193;
     }
 
     #stopBtn {
-      background-color: #e81123;
+      background-color: #d7767e;
       color: white;
     }
 
     #stopBtn:disabled {
-      background-color: #f3b2b2;
+      background-color: #f1b6b6;
       cursor: not-allowed;
+    }
+
+    #toggleTranscriptBtn {
+      background-color: #6a9bd1;
+      color: white;
+    }
+
+    #toggleTranscriptBtn:hover {
+      background-color: #5a8bc1;
     }
 
     audio {
       margin-top: 2rem;
       display: block;
+    }
+
+    .conversation-container {
+      width: 90%;
+      max-width: 600px;
+      margin-bottom: 2rem;
+    }
+
+    .conversation-container.hidden {
+      display: none;
+    }
+
+    .conversation-box {
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 0.5rem;
+      padding: 1rem;
+      height: 300px;
+      overflow-y: auto;
+      text-align: left;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 0.9rem;
+      line-height: 1.5;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .conversation-box:empty::before {
+      content: "Conversation will appear here...";
+      color: #999;
+      font-style: italic;
+    }
+
+    .message {
+      margin-bottom: 0.8rem;
+      padding: 0.5rem;
+      border-radius: 0.3rem;
+    }
+
+    .user-message {
+      background-color: #e3f2fd;
+      border-left: 3px solid #76baf1;
+    }
+
+    .assistant-message {
+      background-color: #f3e5f5;
+      border-left: 3px solid #c48ece;
+    }
+
+    .message-label {
+      font-weight: bold;
+      margin-bottom: 0.2rem;
+    }
+
+    .user-message .message-label {
+      color: #f3e5f5;
+    }
+
+    .assistant-message .message-label {
+      color: #f3e5f5;
     }
 
     footer {
@@ -78,9 +153,14 @@
     }
   </style>
 </head>
+
 <body>
   <h1>🎙️ Voice Live Demo UX</h1>
   <div class="subtitle">Talk to an AI agent in real time. Click below to start.</div>
+
+  <div class="conversation-container hidden" id="conversationContainer">
+    <div id="conversationBox" class="conversation-box"></div>
+  </div>
 
   <div class="controls">
     <button id="startBtn" onclick="startStreaming()" title="Start talking to the voice agent">
@@ -88,6 +168,9 @@
     </button>
     <button id="stopBtn" onclick="stopStreaming()" disabled title="End the conversation with the agent">
       Stop Conversation
+    </button>
+    <button id="toggleTranscriptBtn" onclick="toggleConversationBox()" title="Toggle transcript visibility">
+      Show Transcript
     </button>
   </div>
 
@@ -101,6 +184,30 @@
     let mediaStream, source, processor, socket;
     let audioContext = new AudioContext({ sampleRate: 24000 });
     let workletNode;
+
+    function clearConversation() {
+      document.getElementById('conversationBox').innerHTML = '';
+    }
+
+    function addMessage(text, isUser) {
+      const conversationBox = document.getElementById('conversationBox');
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `message ${isUser ? 'user-message' : 'assistant-message'}`;
+
+      const labelDiv = document.createElement('div');
+      labelDiv.className = 'message-label';
+      labelDiv.textContent = isUser ? 'User:' : 'Assistant:';
+
+      const textDiv = document.createElement('div');
+      textDiv.textContent = text;
+
+      messageDiv.appendChild(labelDiv);
+      messageDiv.appendChild(textDiv);
+      conversationBox.appendChild(messageDiv);
+
+      // Auto-scroll to bottom
+      conversationBox.scrollTop = conversationBox.scrollHeight;
+    }
 
     // Load the AudioWorkletProcessor
     async function loadAudioProcessor() {
@@ -168,21 +275,38 @@
     }
 
     function stopStreaming() {
-      socket.close();
+      stopPlayback(); // Stop any audio that's currently playing
+
+      // Immediately update button states for better UX
+      document.getElementById("startBtn").disabled = false;
+      document.getElementById("stopBtn").disabled = true;
+
+      if (socket) {
+        socket.close();
+      }
     }
 
     function startStreaming() {
+      clearConversation(); // Clear conversation when starting
       let wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
-      let wsHost = window.location.host; 
+      let wsHost = window.location.host;
       socket = new WebSocket(`${wsProtocol}://${wsHost}/web/ws`);
       socket.binaryType = "arraybuffer";
 
       socket.onopen = async () => {
         console.log("WebSocket opened");
-        await audioContext.resume();
-        await startMicrophone();
-        document.getElementById("startBtn").disabled = true;
-        document.getElementById("stopBtn").disabled = false;
+        try {
+          await audioContext.resume();
+          await startMicrophone();
+          document.getElementById("startBtn").disabled = true;
+          document.getElementById("stopBtn").disabled = false;
+        } catch (error) {
+          console.error("Failed to start microphone:", error);
+          // Reset button states on error
+          document.getElementById("startBtn").disabled = false;
+          document.getElementById("stopBtn").disabled = true;
+          socket.close();
+        }
       };
 
       socket.onmessage = async (event) => {
@@ -192,19 +316,23 @@
             console.log("Audio stopped")
             stopPlayback();
           }
-          if (msg.Kind === "Transcription") {
-            console.log("Transcript:", msg.Text);
+          if (msg.Kind === "UserTranscription") {
+            console.log("User transcript:", msg.Text);
+            addMessage(msg.Text, true); // true for user message
           }
-         }
-        else if (event.data instanceof ArrayBuffer) {
-            try {
-              playAudio(event.data);
-            } catch (e) {
-              console.error("Failed to decode audio:", e);
-            }
+          if (msg.Kind === "AssistantTranscription") {
+            console.log("Assistant transcript:", msg.Text);
+            addMessage(msg.Text, false); // false for assistant message
+          }
         }
-        else
-        {
+        else if (event.data instanceof ArrayBuffer) {
+          try {
+            playAudio(event.data);
+          } catch (e) {
+            console.error("Failed to decode audio:", e);
+          }
+        }
+        else {
           console.log("unknown message", event.data);
         }
       }
@@ -216,11 +344,30 @@
         document.getElementById("stopBtn").disabled = true;
       };
 
-      socket.onerror = (err) => console.error("WebSocket error", err);
+      socket.onerror = (err) => {
+        console.error("WebSocket error", err);
+        // Ensure buttons are in correct state on error
+        document.getElementById("startBtn").disabled = false;
+        document.getElementById("stopBtn").disabled = true;
+      };
+    }
+
+    function toggleConversationBox() {
+      const conversationContainer = document.getElementById('conversationContainer');
+      const toggleBtn = document.getElementById('toggleTranscriptBtn');
+
+      if (conversationContainer.classList.contains('hidden')) {
+        conversationContainer.classList.remove('hidden');
+        toggleBtn.textContent = 'Hide Transcript';
+      } else {
+        conversationContainer.classList.add('hidden');
+        toggleBtn.textContent = 'Show Transcript';
+      }
     }
 
     // Initialize the audio processor
     loadAudioProcessor();
   </script>
 </body>
+
 </html>

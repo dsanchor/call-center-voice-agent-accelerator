@@ -6,7 +6,7 @@ import json
 import logging
 import uuid
 
-from azure.identity.aio import ManagedIdentityCredential
+from azure.identity.aio import DefaultAzureCredential
 from websockets.asyncio.client import connect as ws_connect
 from websockets.typing import Data
 
@@ -18,7 +18,6 @@ def session_config():
     return {
         "type": "session.update",
         "session": {
-            "instructions": "You are a helpful AI assistant responding in natural, engaging language.",
             "turn_detection": {
                 "type": "azure_semantic_vad",
                 "threshold": 0.3,
@@ -31,14 +30,19 @@ def session_config():
                     "timeout": 2,
                 },
             },
-            "input_audio_noise_reduction": {"type": "azure_deep_noise_suppression"},
-            "input_audio_echo_cancellation": {"type": "server_echo_cancellation"},
+            "input_audio_noise_reduction": {
+                "type": "azure_deep_noise_suppression"
+            },
+            "input_audio_echo_cancellation": {
+                "type": "server_echo_cancellation"
+            },
             "voice": {
-                "name": "en-US-Aria:DragonHDLatestNeural",
+                "name": "es-ES-Ximena:DragonHDLatestNeural",
                 "type": "azure-standard",
                 "temperature": 0.8,
             },
         },
+        "event_id": ""
     }
 
 
@@ -49,7 +53,9 @@ class ACSMediaHandler:
         self.endpoint = config["AZURE_VOICE_LIVE_ENDPOINT"]
         self.model = config["VOICE_LIVE_MODEL"]
         self.api_key = config["AZURE_VOICE_LIVE_API_KEY"]
-        self.client_id = config["AZURE_USER_ASSIGNED_IDENTITY_CLIENT_ID"]
+        self.agent_project_name = config["AZURE_AGENT_PROJECT_NAME"]
+        self.agent_id = config["AZURE_AGENT_ID"]
+        # self.client_id = config["AZURE_USER_ASSIGNED_IDENTITY_CLIENT_ID"]
         self.send_queue = asyncio.Queue()
         self.ws = None
         self.send_task = None
@@ -61,21 +67,20 @@ class ACSMediaHandler:
 
     async def connect(self):
         """Connects to Azure Voice Live API via WebSocket."""
-        url = f"{self.endpoint}/voice-live/realtime?api-version=2025-05-01-preview&model={self.model}"
+
+        credential = DefaultAzureCredential()
+        scopes = "https://ai.azure.com/.default"
+        token = await credential.get_token(scopes)
+
+        # log token
+        logger.info(f"Using Azure AD token for {scopes}: {token.token}")
+
+        url = f"{self.endpoint}/voice-live/realtime?api-version=2025-10-01&agent-project-name={self.agent_project_name}&agent-id={self.agent_id}&agent-access-token={token.token}"
         url = url.replace("https://", "wss://")
 
         headers = {"x-ms-client-request-id": self._generate_guid()}
+        headers["Authorization"] = f"Bearer {token.token}"
 
-        if self.client_id:
-            credential = ManagedIdentityCredential(
-                managed_identity_client_id=self.client_id
-            )
-            token = await credential.get_token(
-                "https://cognitiveservices.azure.com/.default"
-            )
-            headers["Authorization"] = f"Bearer {token.token}"
-        else:
-            headers["api-key"] = self.api_key
 
         self.ws = await ws_connect(url, additional_headers=headers)
         logger.info("[VoiceLiveACSHandler] Connected to Voice Live API")
@@ -140,6 +145,9 @@ class ACSMediaHandler:
                     case "conversation.item.input_audio_transcription.completed":
                         transcript = event.get("transcript")
                         logger.info("User: %s", transcript)
+                        await self.send_message(
+                            json.dumps({"Kind": "UserTranscription", "Text": transcript})
+                        )
 
                     case "conversation.item.input_audio_transcription.failed":
                         error_msg = event.get("error")
@@ -158,7 +166,7 @@ class ACSMediaHandler:
                         transcript = event.get("transcript")
                         logger.info("AI: %s", transcript)
                         await self.send_message(
-                            json.dumps({"Kind": "Transcription", "Text": transcript})
+                            json.dumps({"Kind": "AssistantTranscription", "Text": transcript})
                         )
 
                     case "response.audio.delta":

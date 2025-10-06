@@ -1,3 +1,6 @@
+NOTE: This repository is based on the [Azure Voice Live API call center accelerator](https://github.com/dsanchor/call-center-voice-agent-accelerator) and has been modified to add a new Azure AI Agent instead of a model. Still automation of deployment to be updated with new environment variables from the new agent (AZURE_AGENT_PROJECT_NAME and AZURE_AGENT_ID) and System Assigned managed identity.
+
+
 # Call Center Voice Agent Accelerator with Azure Voice Live API
 
 Welcome to the *Call Center Real-time Voice Agent* solution accelerator. It's a lightweight template to create speech-to-speech voice agents that deliver personalized self-service experiences and natural-sounding voices, seamlessly integrated with telephony systems. This solution accelerator uses  **Azure Voice Live API** and **Azure Communication Services** — Start locally, deploy later to Azure Web App. No PSTN number needed.

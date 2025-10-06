@@ -12,12 +12,17 @@ param acsConnectionStringSecretUri string
 param logAnalyticsWorkspaceName string
 
 // Helper to sanitize environmentName for valid container app name
-var sanitizedEnvName = toLower(replace(replace(replace(replace(environmentName, ' ', '-'), '--', '-'), '[^a-zA-Z0-9-]', ''), '_', '-'))
+var sanitizedEnvName = toLower(replace(
+  replace(replace(replace(environmentName, ' ', '-'), '--', '-'), '[^a-zA-Z0-9-]', ''),
+  '_',
+  '-'
+))
 var containerAppName = take('ca-${sanitizedEnvName}-${uniqueSuffix}', 32)
 var containerEnvName = take('cae-${sanitizedEnvName}-${uniqueSuffix}', 32)
 
-resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2022-10-01' existing = { name: logAnalyticsWorkspaceName }
-
+resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2022-10-01' existing = {
+  name: logAnalyticsWorkspaceName
+}
 
 module fetchLatestImage './fetch-container-image.bicep' = {
   name: '${containerAppName}-fetch-image'
@@ -82,7 +87,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-10-02-preview' = {
       containers: [
         {
           name: 'main'
-          image: fetchLatestImage.outputs.?containers[?0].?image ??'${containerRegistryName}.azurecr.io/voice-live-agent/app-voiceagent:latest'
+          image: '${containerRegistryName}.azurecr.io/voice-live-agent/app-voice-live-cc:latest'
           env: [
             {
               name: 'AZURE_VOICE_LIVE_API_KEY'

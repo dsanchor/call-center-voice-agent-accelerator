@@ -18,7 +18,11 @@ param sku object = {
 param zoneRedundancy string = 'Disabled'
 
 // Helper to sanitize environmentName for valid container app name
-var sanitizedEnvName = toLower(replace(replace(replace(replace(environmentName, ' ', ''), '--', ''), '[^a-zA-Z0-9-]', ''), '_', ''))
+var sanitizedEnvName = toLower(replace(
+  replace(replace(replace(replace(environmentName, ' ', ''), '--', ''), '[^a-zA-Z0-9-]', ''), '_', ''),
+  '-',
+  ''
+))
 var containerRegistryName = take('${sanitizedEnvName}${uniqueSuffix}', 32)
 
 // 2022-02-01-preview needed for anonymousPullEnabled
@@ -44,7 +48,10 @@ resource acrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: containerRegistry
   name: guid(subscription().id, resourceGroup().id, appIdentity.id, 'acrPullRole')
   properties: {
-    roleDefinitionId:  subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+    )
     principalType: 'ServicePrincipal'
     principalId: appIdentity.properties.principalId
   }
