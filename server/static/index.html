@@ -31,6 +31,74 @@
       margin-bottom: 2rem;
     }
 
+    /* Voice Animation Styles */
+    .voice-animation-container {
+      position: relative;
+      width: 200px;
+      height: 200px;
+      margin: 2rem auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .volume-circle {
+      position: absolute;
+      width: 160px;
+      height: 160px;
+      border-radius: 50%;
+      background: #e0e0e0;
+      transition: all 0.1s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .volume-circle.listening {
+      background: #76baf1;
+    }
+
+    .volume-circle.speaking {
+      background: #c48ece;
+    }
+
+    .volume-circle::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      border: 2px solid rgba(106, 155, 209, 0.6);
+      border-radius: 50%;
+      opacity: 0;
+      animation: ripple 2s linear infinite;
+    }
+
+    @keyframes ripple {
+      0% {
+        transform: scale(1);
+        opacity: 0;
+      }
+
+      50% {
+        transform: scale(1.3);
+        opacity: 0.5;
+      }
+
+      100% {
+        transform: scale(1.6);
+        opacity: 0;
+      }
+    }
+
+    .robot-icon {
+      position: relative;
+      z-index: 10;
+      width: 40px;
+      height: 40px;
+    }
+
     .controls {
       display: flex;
       gap: 1rem;
@@ -158,6 +226,12 @@
   <h1>🎙️ Voice Live Demo UX</h1>
   <div class="subtitle">Talk to an AI agent in real time. Click below to start.</div>
 
+  <!-- Voice Animation -->
+  <div class="voice-animation-container" id="voiceAnimation" style="display: none;">
+    <div class="volume-circle" id="volumeCircle">
+    </div>
+  </div>
+
   <div class="conversation-container hidden" id="conversationContainer">
     <div id="conversationBox" class="conversation-box"></div>
   </div>
@@ -184,6 +258,15 @@
     let mediaStream, source, processor, socket;
     let audioContext = new AudioContext({ sampleRate: 24000 });
     let workletNode;
+
+    // Audio visualization variables
+    let analyserNode = null;
+    let speakerAnalyserNode = null;
+    let dataArray = null;
+    let speakerDataArray = null;
+    let animationFrame = null;
+    let isListening = false;
+    let isSpeaking = false;
 
     function clearConversation() {
       document.getElementById('conversationBox').innerHTML = '';
@@ -213,7 +296,16 @@
     async function loadAudioProcessor() {
       await audioContext.audioWorklet.addModule('/static/audio-processor.js');
       workletNode = new AudioWorkletNode(audioContext, 'audio-processor');
-      workletNode.connect(audioContext.destination);
+
+      // Setup analyser for speaker output
+      speakerAnalyserNode = audioContext.createAnalyser();
+      speakerAnalyserNode.fftSize = 256;
+      const bufferLength = speakerAnalyserNode.frequencyBinCount;
+      speakerDataArray = new Uint8Array(bufferLength);
+
+      // Connect worklet to analyser and then to destination
+      workletNode.connect(speakerAnalyserNode);
+      speakerAnalyserNode.connect(audioContext.destination);
     }
 
     async function playAudio(arrayBuffer) {
@@ -228,6 +320,93 @@
 
     function stopPlayback() {
       if (workletNode) workletNode.port.postMessage({ clear: true });
+    }
+
+    // Setup audio analyser for visualization
+    function setupAudioAnalyser() {
+      if (audioContext && source) {
+        analyserNode = audioContext.createAnalyser();
+        analyserNode.fftSize = 256;
+        const bufferLength = analyserNode.frequencyBinCount;
+        dataArray = new Uint8Array(bufferLength);
+
+        // Connect microphone to analyser
+        source.connect(analyserNode);
+      }
+    }
+
+    // Calculate volume and update circle
+    function updateVolumeCircle() {
+      let volume = 0;
+
+      // When speaking (assistant), use speaker analyser
+      if (isSpeaking && speakerAnalyserNode && speakerDataArray) {
+        speakerAnalyserNode.getByteFrequencyData(speakerDataArray);
+        volume = Array.from(speakerDataArray).reduce((acc, v) => acc + v, 0) / speakerDataArray.length;
+        // Amplify speaker volume for more visible animation (x2)
+        // volume = Math.min(255, volume * 2);
+      }
+      // When listening (user), use microphone analyser
+      else if (isListening && analyserNode && dataArray) {
+        analyserNode.getByteFrequencyData(dataArray);
+        volume = Array.from(dataArray).reduce((acc, v) => acc + v, 0) / dataArray.length;
+      }
+
+      // Update circle size based on volume
+      const volumeCircle = document.getElementById('volumeCircle');
+      if (volumeCircle && (isListening || isSpeaking)) {
+        const minSize = 100;  // Más pequeña cuando no hay audio
+        const maxSize = 200;  // Más grande cuando hay audio
+        const size = minSize + (volume / 255) * (maxSize - minSize);
+        volumeCircle.style.width = `${size}px`;
+        volumeCircle.style.height = `${size}px`;
+
+        // Update class based on state
+        volumeCircle.className = 'volume-circle ' + (isSpeaking ? 'speaking' : 'listening');
+      }
+
+      // Continue animation
+      if (isListening || isSpeaking) {
+        animationFrame = requestAnimationFrame(updateVolumeCircle);
+      }
+    }
+
+    // Start volume animation
+    function startVolumeAnimation(listening = true) {
+      isListening = listening;
+      isSpeaking = !listening;
+
+      const voiceAnimation = document.getElementById('voiceAnimation');
+      if (voiceAnimation) {
+        voiceAnimation.style.display = 'flex';
+      }
+
+      if (animationFrame) {
+        cancelAnimationFrame(animationFrame);
+      }
+      updateVolumeCircle();
+    }
+
+    // Stop volume animation
+    function stopVolumeAnimation() {
+      isListening = false;
+      isSpeaking = false;
+
+      if (animationFrame) {
+        cancelAnimationFrame(animationFrame);
+        animationFrame = null;
+      }
+
+      const voiceAnimation = document.getElementById('voiceAnimation');
+      if (voiceAnimation) {
+        voiceAnimation.style.display = 'none';
+      }
+
+      const volumeCircle = document.getElementById('volumeCircle');
+      if (volumeCircle) {
+        volumeCircle.style.width = '160px';
+        volumeCircle.style.height = '160px';
+      }
     }
 
     function float32ToInt16(float32Array) {
@@ -250,6 +429,9 @@
       source = audioContext.createMediaStreamSource(mediaStream);
       processor = audioContext.createScriptProcessor(4096, 1, 1);
 
+      // Setup analyser for visualization
+      setupAudioAnalyser();
+
       processor.onaudioprocess = (event) => {
         const input = event.inputBuffer.getChannelData(0);
         const pcm = float32ToInt16(input);
@@ -261,9 +443,16 @@
       // ONLY route mic input into the processor
       source.connect(processor);
       processor.connect(audioContext.destination); // destination is silent when context's output not used
+
+      // Start listening animation
+      startVolumeAnimation(true);
     }
 
     function stopMicrophone() {
+      if (analyserNode) {
+        analyserNode.disconnect();
+        analyserNode = null;
+      }
       if (processor && typeof processor.disconnect === "function") {
         processor.disconnect();
         processor = null;
@@ -272,10 +461,12 @@
         mediaStream.getTracks().forEach(t => t.stop());
         mediaStream = null;
       }
+      stopVolumeAnimation();
     }
 
     function stopStreaming() {
       stopPlayback(); // Stop any audio that's currently playing
+      stopVolumeAnimation(); // Stop animation
 
       // Immediately update button states for better UX
       document.getElementById("startBtn").disabled = false;
@@ -315,6 +506,7 @@
           if (msg.Kind === "StopAudio") {
             console.log("Audio stopped")
             stopPlayback();
+            startVolumeAnimation(true); // Back to listening mode
           }
           if (msg.Kind === "UserTranscription") {
             console.log("User transcript:", msg.Text);
@@ -327,6 +519,7 @@
         }
         else if (event.data instanceof ArrayBuffer) {
           try {
+            startVolumeAnimation(false); // Switch to speaking mode
             playAudio(event.data);
           } catch (e) {
             console.error("Failed to decode audio:", e);
