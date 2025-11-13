@@ -72,24 +72,14 @@
       cursor: not-allowed;
     }
 
-    #toggleTranscriptBtn {
-      background-color: #6a9bd1;
-      color: white;
-    }
-
     #toggleTranscriptBtn:hover {
       background-color: #5a8bc1;
     }
 
-    audio {
-      margin-top: 2rem;
-      display: block;
-    }
-
     .conversation-container {
-      width: 90%;
-      max-width: 600px;
-      margin-bottom: 2rem;
+      width: 100%;
+      max-width: 400px;
+      height: 450px;
     }
 
     .conversation-container.hidden {
@@ -101,7 +91,8 @@
       border: 1px solid #ddd;
       border-radius: 0.5rem;
       padding: 1rem;
-      height: 300px;
+      height: 100%;
+      box-sizing: border-box;
       overflow-y: auto;
       text-align: left;
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -145,6 +136,92 @@
       color: #f3e5f5;
     }
 
+    /* Avatar Section Styles */
+    .avatar-section {
+      width: 90%;
+      max-width: 1400px;
+      margin: 2rem auto;
+      display: none;
+      /* Hidden by default */
+    }
+
+    .avatar-section.visible {
+      display: flex;
+      gap: 2rem;
+      align-items: flex-start;
+      justify-content: center;
+    }
+
+    .avatar-content {
+      display: flex;
+      gap: 2rem;
+      align-items: flex-start;
+      width: 100%;
+    }
+
+    .video-container {
+      position: relative;
+      background: white;
+      border-radius: 0.5rem;
+      overflow: hidden;
+      aspect-ratio: 16 / 9;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      flex: 0 0 800px;
+      max-width: 800px;
+    }
+
+    #avatarVideo {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+
+    .avatar-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.95);
+      color: #333;
+      font-size: 1.2rem;
+    }
+
+    .avatar-overlay.hidden {
+      display: none;
+    }
+
+    .avatar-loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .spinner {
+      border: 4px solid rgba(73, 143, 197, 0.3);
+      border-top: 4px solid #498fc5;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+
     footer {
       position: absolute;
       bottom: 1rem;
@@ -158,8 +235,33 @@
   <h1>🎙️ Voice Live Demo UX</h1>
   <div class="subtitle">Talk to an AI agent in real time. Click below to start.</div>
 
-  <div class="conversation-container hidden" id="conversationContainer">
-    <div id="conversationBox" class="conversation-box"></div>
+  <!-- Avatar Section -->
+  <div class="avatar-section" id="avatarSection">
+    <div class="video-container">
+      <video id="avatarVideo" autoplay playsinline></video>
+
+      <!-- Loading overlay -->
+      <div id="avatarLoadingOverlay" class="avatar-overlay hidden">
+        <div class="avatar-loading">
+          <div class="spinner"></div>
+          <p>Connecting Avatar...</p>
+        </div>
+      </div>
+
+      <!-- Placeholder overlay -->
+      <div id="avatarPlaceholderOverlay" class="avatar-overlay">
+        <p>Click "Start Avatar" to begin video stream</p>
+      </div>
+
+      <!-- Paused overlay -->
+      <div id="avatarPausedOverlay" class="avatar-overlay hidden">
+        <p>⏸️ Avatar Paused</p>
+      </div>
+    </div>
+
+    <div class="conversation-container" id="conversationContainer">
+      <div id="conversationBox" class="conversation-box"></div>
+    </div>
   </div>
 
   <div class="controls">
@@ -169,21 +271,25 @@
     <button id="stopBtn" onclick="stopStreaming()" disabled title="End the conversation with the agent">
       Stop Conversation
     </button>
-    <button id="toggleTranscriptBtn" onclick="toggleConversationBox()" title="Toggle transcript visibility">
-      Show Transcript
-    </button>
   </div>
 
   <audio id="ttsPlayer" autoplay></audio>
 
   <footer>
-    Powered by Azure Voice Live • Demo Mode
   </footer>
 
   <script>
     let mediaStream, source, processor, socket;
     let audioContext = new AudioContext({ sampleRate: 24000 });
     let workletNode;
+
+    // Avatar variables
+    let handlerId = null;
+    let avatarIceServers = [];
+    let peerConnection = null;
+    let remoteAudioElement = null;
+    let avatarReady = false;
+    let avatarPaused = false;
 
     function clearConversation() {
       document.getElementById('conversationBox').innerHTML = '';
@@ -207,6 +313,10 @@
 
       // Auto-scroll to bottom
       conversationBox.scrollTop = conversationBox.scrollHeight;
+    }
+
+    function log(message) {
+      console.log(`[Voice Live] ${message}`);
     }
 
     // Load the AudioWorkletProcessor
@@ -258,9 +368,8 @@
         }
       };
 
-      // ONLY route mic input into the processor
       source.connect(processor);
-      processor.connect(audioContext.destination); // destination is silent when context's output not used
+      processor.connect(audioContext.destination);
     }
 
     function stopMicrophone() {
@@ -274,27 +383,195 @@
       }
     }
 
-    function stopStreaming() {
-      stopPlayback(); // Stop any audio that's currently playing
+    // ============ AVATAR FUNCTIONS ============
 
-      // Immediately update button states for better UX
+    async function startAvatar() {
+      if (!handlerId) {
+        log("Cannot start avatar: No handler ID");
+        return;
+      }
+
+      if (peerConnection) {
+        log("Avatar already connected");
+        return;
+      }
+
+      // Show loading overlay
+      document.getElementById('avatarLoadingOverlay').classList.remove('hidden');
+      document.getElementById('avatarPlaceholderOverlay').classList.add('hidden');
+
+      log("Initializing avatar connection...");
+
+      try {
+        // 1. Create RTCPeerConnection with ICE servers
+        peerConnection = new RTCPeerConnection({
+          bundlePolicy: "max-bundle",
+          iceServers: avatarIceServers
+        });
+
+        log(`Created peer connection with ${avatarIceServers.length} ICE server(s)`);
+
+        // 2. Add transceivers (receive only)
+        peerConnection.addTransceiver("audio", { direction: "recvonly" });
+        peerConnection.addTransceiver("video", { direction: "recvonly" });
+
+        // 3. Handle incoming tracks
+        peerConnection.ontrack = (event) => {
+          const [stream] = event.streams;
+          if (!stream) return;
+
+          if (event.track.kind === "video") {
+            const videoElement = document.getElementById('avatarVideo');
+            videoElement.srcObject = stream;
+            videoElement.play().catch(err => log(`Video play error: ${err}`));
+            log("Avatar video track received");
+          }
+
+          if (event.track.kind === "audio") {
+            if (!remoteAudioElement) {
+              remoteAudioElement = document.createElement("audio");
+              remoteAudioElement.autoplay = true;
+              remoteAudioElement.controls = false;
+              remoteAudioElement.style.display = "none";
+              remoteAudioElement.setAttribute("playsinline", "true");
+              remoteAudioElement.muted = false;
+              document.body.appendChild(remoteAudioElement);
+            }
+            remoteAudioElement.srcObject = stream;
+            remoteAudioElement.play().catch(() => { });
+            log("Avatar audio track received");
+          }
+        };
+
+        // 4. Monitor connection state
+        peerConnection.onconnectionstatechange = () => {
+          log(`WebRTC state: ${peerConnection.connectionState}`);
+          if (peerConnection.connectionState === "connected") {
+            // Hide loading, show video
+            document.getElementById('avatarLoadingOverlay').classList.add('hidden');
+            avatarReady = true;
+          }
+        };
+
+        peerConnection.oniceconnectionstatechange = () => {
+          log(`ICE state: ${peerConnection.iceConnectionState}`);
+        };
+
+        // 5. Wait for ICE gathering to complete
+        const gatheringFinished = new Promise((resolve) => {
+          if (peerConnection.iceGatheringState === "complete") {
+            resolve();
+          } else {
+            peerConnection.addEventListener("icegatheringstatechange", () => {
+              if (peerConnection.iceGatheringState === "complete") {
+                resolve();
+              }
+            });
+          }
+        });
+
+        // 6. Create and set local description
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        await gatheringFinished;
+
+        const localSdp = peerConnection.localDescription?.sdp;
+        if (!localSdp) {
+          throw new Error("Failed to obtain local SDP");
+        }
+
+        log("Sending SDP offer to backend...");
+
+        // 7. Send SDP offer to backend
+        const response = await fetch('/avatar-offer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            handler_id: handlerId,
+            sdp: localSdp
+          })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(`Avatar offer failed: ${errorData.error || response.status}`);
+        }
+
+        // 8. Set remote description
+        const { sdp } = await response.json();
+        await peerConnection.setRemoteDescription({ type: "answer", sdp });
+
+        log("Avatar connected successfully");
+
+      } catch (error) {
+        log(`Avatar connection error: ${error}`);
+        teardownAvatar();
+        document.getElementById('avatarLoadingOverlay').classList.add('hidden');
+        document.getElementById('avatarPlaceholderOverlay').classList.remove('hidden');
+      }
+    }
+
+    function stopAvatar() {
+      teardownAvatar();
+      log("Avatar stopped by user");
+    }
+
+    function teardownAvatar() {
+      // Close peer connection
+      if (peerConnection) {
+        peerConnection.close();
+        peerConnection = null;
+      }
+
+      // Clear video
+      const videoElement = document.getElementById('avatarVideo');
+      videoElement.srcObject = null;
+
+      // Clean up remote audio
+      if (remoteAudioElement) {
+        remoteAudioElement.pause();
+        remoteAudioElement.srcObject = null;
+        remoteAudioElement.remove();
+        remoteAudioElement = null;
+      }
+
+      // Reset UI
+      avatarReady = false;
+      avatarPaused = false;
+      document.getElementById('avatarLoadingOverlay').classList.add('hidden');
+      document.getElementById('avatarPausedOverlay').classList.add('hidden');
+      document.getElementById('avatarPlaceholderOverlay').classList.remove('hidden');
+    }
+
+    // ============ WEBSOCKET FUNCTIONS ============
+
+    function stopStreaming() {
+      stopPlayback();
       document.getElementById("startBtn").disabled = false;
       document.getElementById("stopBtn").disabled = true;
+
+      // Teardown avatar if active
+      if (avatarReady || peerConnection) {
+        teardownAvatar();
+      }
 
       if (socket) {
         socket.close();
       }
+
+      // Hide avatar section
+      document.getElementById('avatarSection').classList.remove('visible');
     }
 
     function startStreaming() {
-      clearConversation(); // Clear conversation when starting
+      clearConversation();
       let wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
       let wsHost = window.location.host;
       socket = new WebSocket(`${wsProtocol}://${wsHost}/web/ws`);
       socket.binaryType = "arraybuffer";
 
       socket.onopen = async () => {
-        console.log("WebSocket opened");
+        log("WebSocket opened");
         try {
           await audioContext.resume();
           await startMicrophone();
@@ -302,7 +579,6 @@
           document.getElementById("stopBtn").disabled = false;
         } catch (error) {
           console.error("Failed to start microphone:", error);
-          // Reset button states on error
           document.getElementById("startBtn").disabled = false;
           document.getElementById("stopBtn").disabled = true;
           socket.close();
@@ -312,17 +588,70 @@
       socket.onmessage = async (event) => {
         if (typeof event.data === "string") {
           const msg = JSON.parse(event.data);
-          if (msg.Kind === "StopAudio") {
-            console.log("Audio stopped")
-            stopPlayback();
-          }
-          if (msg.Kind === "UserTranscription") {
-            console.log("User transcript:", msg.Text);
-            addMessage(msg.Text, true); // true for user message
-          }
-          if (msg.Kind === "AssistantTranscription") {
-            console.log("Assistant transcript:", msg.Text);
-            addMessage(msg.Text, false); // false for assistant message
+
+          // Handle different message kinds
+          switch (msg.Kind) {
+            case "HandlerId":
+              handlerId = msg.Id;
+              log(`Received handler ID: ${handlerId}`);
+              break;
+
+            case "SessionUpdated":
+              // Extract ICE servers from session.updated event
+              const sessionEvent = msg.Event;
+              if (sessionEvent && sessionEvent.type === "session.updated") {
+                const session = sessionEvent.session || {};
+                const avatar = session.avatar || {};
+
+                const candidateSources = [
+                  avatar.ice_servers,
+                  session.rtc?.ice_servers,
+                  session.ice_servers
+                ].find(value => Array.isArray(value));
+
+                if (candidateSources) {
+                  avatarIceServers = candidateSources.map(entry => {
+                    if (typeof entry === "string") {
+                      return { urls: entry };
+                    }
+                    if (entry && typeof entry === "object" && entry.urls) {
+                      return {
+                        urls: entry.urls,
+                        username: entry.username,
+                        credential: entry.credential
+                      };
+                    }
+                    return null;
+                  }).filter(Boolean);
+
+                  if (avatarIceServers.length > 0) {
+                    log(`Received ${avatarIceServers.length} ICE server(s)`);
+                    // Show avatar section and automatically start avatar
+                    document.getElementById('avatarSection').classList.add('visible');
+                    startAvatar();
+                  }
+                }
+              }
+              break;
+
+            case "AvatarConnecting":
+              log("Avatar is connecting...");
+              break;
+
+            case "StopAudio":
+              stopPlayback();
+              break;
+
+            case "UserTranscription":
+              addMessage(msg.Text, true);
+              break;
+
+            case "AssistantTranscription":
+              addMessage(msg.Text, false);
+              break;
+
+            default:
+              log(`Unknown message kind: ${msg.Kind}`);
           }
         }
         else if (event.data instanceof ArrayBuffer) {
@@ -332,37 +661,24 @@
             console.error("Failed to decode audio:", e);
           }
         }
-        else {
-          console.log("unknown message", event.data);
-        }
-      }
+      };
 
       socket.onclose = () => {
-        console.log("WebSocket closed");
+        log("WebSocket closed");
         stopMicrophone();
+        teardownAvatar();
         document.getElementById("startBtn").disabled = false;
         document.getElementById("stopBtn").disabled = true;
+        document.getElementById('avatarSection').classList.remove('visible');
+        handlerId = null;
+        avatarIceServers = [];
       };
 
       socket.onerror = (err) => {
         console.error("WebSocket error", err);
-        // Ensure buttons are in correct state on error
         document.getElementById("startBtn").disabled = false;
         document.getElementById("stopBtn").disabled = true;
       };
-    }
-
-    function toggleConversationBox() {
-      const conversationContainer = document.getElementById('conversationContainer');
-      const toggleBtn = document.getElementById('toggleTranscriptBtn');
-
-      if (conversationContainer.classList.contains('hidden')) {
-        conversationContainer.classList.remove('hidden');
-        toggleBtn.textContent = 'Hide Transcript';
-      } else {
-        conversationContainer.classList.add('hidden');
-        toggleBtn.textContent = 'Show Transcript';
-      }
     }
 
     // Initialize the audio processor

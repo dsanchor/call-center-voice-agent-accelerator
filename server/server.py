@@ -1,4 +1,7 @@
+"""Handles initial incoming call event from EventGrid."""
+
 import asyncio
+import json
 import logging
 import os
 
@@ -30,6 +33,9 @@ if app.config["ENABLE_ACS"] != "false":
     acs_handler = AcsEventHandler(app.config)
 else:
     acs_handler = None
+
+# Global storage para los handlers activos (para acceder al handler del WebSocket desde HTTP)
+active_handlers = {}
 
 
 @app.route("/acs/incomingcall", methods=["POST"])
@@ -68,8 +74,19 @@ async def web_ws():
     """WebSocket endpoint for web clients to send audio to Voice Live."""
     logger = logging.getLogger("web_ws")
     logger.info("Incoming Web WebSocket connection")
+    
+    # Generar un ID único para este handler
+    handler_id = str(os.urandom(16).hex())
+    
     handler = ACSMediaHandler(app.config)
     await handler.init_incoming_websocket(websocket, is_raw_audio=True)
+    
+    # Almacenar el handler para que pueda ser accedido desde el endpoint HTTP
+    active_handlers[handler_id] = handler
+    
+    # Enviar el handler_id al cliente para que lo use en la negociación del avatar
+    await websocket.send(json.dumps({"Kind": "HandlerId", "Id": handler_id}))
+    
     asyncio.create_task(handler.connect())
     try:
         while True:
@@ -77,6 +94,42 @@ async def web_ws():
             await handler.web_to_voicelive(msg)
     except Exception:
         logger.exception("Web WebSocket connection closed")
+    finally:
+        # Limpiar el handler cuando se cierra la conexión
+        active_handlers.pop(handler_id, None)
+
+
+@app.route("/avatar-offer", methods=["POST"])
+async def avatar_offer():
+    """
+    Endpoint HTTP para manejar la negociación WebRTC del avatar.
+    Recibe el SDP offer del cliente y devuelve el SDP answer de Azure.
+    """
+    logger = logging.getLogger("avatar_offer")
+    
+    try:
+        data = await request.get_json()
+        handler_id = data.get("handler_id")
+        client_sdp = data.get("sdp")
+        
+        if not handler_id or not client_sdp:
+            return {"error": "Missing handler_id or sdp"}, 400
+        
+        # Buscar el handler activo
+        handler = active_handlers.get(handler_id)
+        if not handler:
+            return {"error": "Handler not found or connection closed"}, 404
+        
+        logger.info(f"Processing avatar offer for handler {handler_id}")
+        
+        # Realizar la negociación WebRTC
+        server_sdp = await handler.connect_avatar(client_sdp)
+        
+        return {"sdp": server_sdp}, 200
+        
+    except Exception as e:
+        logger.exception("Error processing avatar offer")
+        return {"error": str(e)}, 500
 
 
 @app.route("/")

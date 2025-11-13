@@ -4,7 +4,9 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import uuid
+from typing import Any, Dict, Optional
 
 from azure.identity.aio import DefaultAzureCredential
 from websockets.asyncio.client import connect as ws_connect
@@ -13,11 +15,50 @@ from websockets.typing import Data
 logger = logging.getLogger(__name__)
 
 
+def _build_avatar_config() -> Dict[str, Any]:
+    """Construye la configuración del avatar desde variables de entorno."""
+    character = os.getenv("AZURE_VOICE_AVATAR_CHARACTER", "lisa")
+    style = os.getenv("AZURE_VOICE_AVATAR_STYLE")  # Opcional
+    video_width = int(os.getenv("AZURE_VOICE_AVATAR_WIDTH", "1280"))
+    video_height = int(os.getenv("AZURE_VOICE_AVATAR_HEIGHT", "720"))
+    bitrate = int(os.getenv("AZURE_VOICE_AVATAR_BITRATE", "2000000"))
+    
+    config: Dict[str, Any] = {
+        "character": character,
+        "customized": False,  # false para avatares preconfigurados de Azure
+        "video": {
+            "resolution": {"width": video_width, "height": video_height},
+            "bitrate": bitrate
+        },
+    }
+    
+    # Estilo opcional (requerido para algunos personajes)
+    if style:
+        config["style"] = style
+    
+    # Configuración de servidores ICE para NAT traversal
+    ice_urls = os.getenv("AZURE_VOICE_AVATAR_ICE_URLS")
+    if ice_urls:
+        config["ice_servers"] = [
+            {"urls": [url.strip() for url in ice_urls.split(",") if url.strip()]}
+        ]
+    
+    return config
+
+
 def session_config():
     """Returns the default session configuration for Voice Live."""
-    return {
+    # Verificar si el avatar está habilitado
+    avatar_enabled = os.getenv("AZURE_VOICE_AVATAR_ENABLED", "false").lower() == "true"
+    
+    modalities = ["text", "audio"]
+    if avatar_enabled:
+        modalities.extend(["avatar", "animation"])
+    
+    config = {
         "type": "session.update",
         "session": {
+            "modalities": modalities,
             "turn_detection": {
                 "type": "azure_semantic_vad",
                 "threshold": 0.3,
@@ -44,6 +85,16 @@ def session_config():
         },
         "event_id": ""
     }
+    
+    # Añadir configuración del avatar si está habilitado
+    if avatar_enabled:
+        config["session"]["avatar"] = _build_avatar_config()
+        config["session"]["animation"] = {
+            "model_name": "default",
+            "outputs": ["blendshapes", "viseme_id"]
+        }
+    
+    return config
 
 
 class ACSMediaHandler:
@@ -61,9 +112,99 @@ class ACSMediaHandler:
         self.send_task = None
         self.incoming_websocket = None
         self.is_raw_audio = True
+        # Avatar support
+        self._avatar_ice_servers: Optional[list] = None
+        self._avatar_future: Optional[asyncio.Future] = None
 
     def _generate_guid(self):
         return str(uuid.uuid4())
+
+    @staticmethod
+    def _encode_client_sdp(client_sdp: str) -> str:
+        """
+        Codifica el SDP offer del cliente como JSON base64.
+        Azure Voice Live espera: base64({"type": "offer", "sdp": "..."})
+        """
+        payload = json.dumps({"type": "offer", "sdp": client_sdp})
+        return base64.b64encode(payload.encode("utf-8")).decode("ascii")
+
+    @staticmethod
+    def _decode_server_sdp(server_sdp_raw: Optional[str]) -> Optional[str]:
+        """
+        Decodifica el SDP answer de Azure Voice Live.
+        Puede venir como SDP plano o como JSON base64.
+        """
+        if not server_sdp_raw:
+            return None
+        
+        # Si ya es SDP plano (empieza con "v=0")
+        if server_sdp_raw.startswith("v=0"):
+            return server_sdp_raw
+        
+        try:
+            # Decodificar base64
+            decoded_bytes = base64.b64decode(server_sdp_raw)
+            decoded_text = decoded_bytes.decode("utf-8")
+            
+            # Intentar parsear como JSON
+            payload = json.loads(decoded_text)
+            
+            if isinstance(payload, dict):
+                sdp_value = payload.get("sdp")
+                if isinstance(sdp_value, str) and sdp_value:
+                    return sdp_value
+            
+            # Si no es JSON válido, devolver el texto decodificado
+            return decoded_text
+        except Exception as exc:
+            logger.warning("Error decoding server SDP: %s", exc)
+            # En caso de error, devolver el valor original
+            return server_sdp_raw
+
+    async def connect_avatar(self, client_sdp: str) -> str:
+        """
+        Maneja la negociación WebRTC para conectar el avatar.
+        
+        Args:
+            client_sdp: SDP offer generado por el cliente (frontend)
+            
+        Returns:
+            server_sdp: SDP answer de Azure Voice Live
+        """
+        if not self.ws:
+            raise RuntimeError("WebSocket not connected")
+        
+        # Crear future para esperar la respuesta asíncrona
+        future: asyncio.Future = asyncio.get_event_loop().create_future()
+        self._avatar_future = future
+        
+        # Codificar el SDP offer del cliente
+        encoded_sdp = self._encode_client_sdp(client_sdp)
+        
+        # Preparar payload para Azure Voice Live
+        payload = {
+            "client_sdp": encoded_sdp,
+            "rtc_configuration": {
+                "bundle_policy": "max-bundle"  # Optimización para WebRTC
+            },
+        }
+        
+        # Enviar evento session.avatar.connect
+        await self._send_json({"type": "session.avatar.connect", **payload})
+        
+        try:
+            # Esperar el SDP answer con timeout de 20 segundos
+            server_sdp = await asyncio.wait_for(future, timeout=20)
+            return server_sdp
+        except asyncio.TimeoutError:
+            logger.error("Timeout waiting for avatar SDP answer")
+            raise RuntimeError("Avatar connection timeout")
+        finally:
+            self._avatar_future = None
+
+    def get_avatar_ice_servers(self) -> Optional[list]:
+        """Retorna los ICE servers capturados de la sesión."""
+        return self._avatar_ice_servers
 
     async def connect(self):
         """Connects to Azure Voice Live API via WebSocket."""
@@ -128,6 +269,58 @@ class ACSMediaHandler:
                     case "session.created":
                         session_id = event.get("session", {}).get("id")
                         logger.info("[VoiceLiveACSHandler] Session ID: %s", session_id)
+
+                    case "session.updated":
+                        # Evento CRÍTICO para capturar ICE servers del avatar
+                        session = event.get("session", {})
+                        avatar = session.get("avatar", {})
+                        
+                        # Los ICE servers pueden venir en diferentes ubicaciones
+                        candidate_sources = [
+                            avatar.get("ice_servers"),
+                            session.get("rtc", {}).get("ice_servers"),
+                            session.get("ice_servers"),
+                        ]
+                        
+                        ice_servers = next((s for s in candidate_sources if isinstance(s, list)), None)
+                        
+                        if ice_servers:
+                            # Normalizar formato de ICE servers
+                            normalized = []
+                            for entry in ice_servers:
+                                if isinstance(entry, str):
+                                    normalized.append({"urls": entry})
+                                elif isinstance(entry, dict) and "urls" in entry:
+                                    normalized.append(entry)
+                            
+                            # Guardar para uso posterior
+                            self._avatar_ice_servers = normalized
+                            logger.info("[VoiceLiveACSHandler] Received %d ICE server(s)", len(normalized))
+                        
+                        # Enviar el evento completo al frontend
+                        await self.send_message(
+                            json.dumps({"Kind": "SessionUpdated", "Event": event})
+                        )
+
+                    case "session.avatar.connecting":
+                        # Evento CRÍTICO con el SDP answer de Azure
+                        server_sdp = event.get("server_sdp")
+                        decoded_sdp = self._decode_server_sdp(server_sdp)
+                        
+                        # Resolver el future que espera connect_avatar()
+                        if self._avatar_future and not self._avatar_future.done():
+                            if decoded_sdp is None:
+                                self._avatar_future.set_exception(
+                                    RuntimeError("Empty server SDP")
+                                )
+                            else:
+                                self._avatar_future.set_result(decoded_sdp)
+                        
+                        # Notificar al frontend
+                        await self.send_message(
+                            json.dumps({"Kind": "AvatarConnecting"})
+                        )
+                        logger.info("[VoiceLiveACSHandler] Avatar connecting")
 
                     case "input_audio_buffer.cleared":
                         logger.info("Input Audio Buffer Cleared Message")
