@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - develop
+      - avatar
     paths:
       - 'server/**'
   pull_request:
@@ -45,9 +45,9 @@ jobs:
       with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         tags: |
-          type=ref,event=branch
-          type=ref,event=pr
-          type=sha,prefix={{branch}}-
+          type=ref,event=branch,suffix=-avatar
+          type=ref,event=pr,suffix=-avatar
+          type=sha,prefix={{branch}}-,suffix=-avatar
           type=raw,value=latest,enable={{is_default_branch}}
 
     - name: Build and push Docker image

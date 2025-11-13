@@ -1,4 +1,4 @@
-NOTE: This repository is based on the [Azure Voice Live API call center accelerator](https://github.com/dsanchor/call-center-voice-agent-accelerator) and has been modified to add a new Azure AI Agent instead of a model. Still automation of deployment to be updated with new environment variables from the new agent (AZURE_AGENT_PROJECT_NAME and AZURE_AGENT_ID) and System Assigned managed identity.
+NOTE: This repository is based on the [Azure Voice Live API call center accelerator](https://github.com/dsanchor/call-center-voice-agent-accelerator) and has been modified to use **Azure AI Agent** for enhanced conversational capabilities. The deployment automation includes configuration for the new environment variables (AZURE_AGENT_PROJECT_NAME and AZURE_AGENT_ID) and System Assigned managed identity for secure, passwordless authentication.
 
 
 # Call Center Voice Agent Accelerator with Azure Voice Live API
@@ -39,7 +39,7 @@ The solution includes:
 ## Quick Deploy
 
 ### Prerequisites and Costs
-To deploy this solution accelerator, ensure you have access to an [Azure subscription](https://azure.microsoft.com/free/) with the necessary permissions to create **resource groups and resources**. Follow the steps in [Azure Account Set Up](./docs/AzureAccountSetUp.md).
+To deploy this solution accelerator, ensure you have access to an [Azure subscription](https://azure.microsoft.com/free/) with the necessary permissions to create **resource groups and resources**, including the ability to assign **managed identities**. Follow the steps in [Azure Account Set Up](./docs/AzureAccountSetUp.md).
 
 Check the [Azure Products by Region](https://azure.microsoft.com/explore/global-infrastructure/products-by-region/table) page and select a **region** where the following services are available: Azure AI Foundry Speech, Azure Communication Services, Azure Container Apps, and Container Registry.
 
@@ -50,6 +50,7 @@ Use the [Azure pricing calculator](https://azure.microsoft.com/en-us/pricing/cal
 
 | Product | Description | Cost |
 |---|---|---|
+| [Azure AI Foundry](https://learn.microsoft.com/azure/ai-studio/) | AI project and agent orchestration | [Pricing](https://azure.microsoft.com/pricing/details/ai-studio/) |
 | [Azure Speech Voice Live ](https://learn.microsoft.com/azure/ai-services/speech-service/voice-live/) | Low-latency and high-quality speech to speech interactions | [Pricing](https://azure.microsoft.com/pricing/details/cognitive-services/speech-services/) |
 | [Azure Communication Services](https://learn.microsoft.com/azure/communication-services/overview) | Server-based intelligent call workflows | [Pricing](https://azure.microsoft.com/pricing/details/communication-services/) |
 | [Azure Container Apps](https://learn.microsoft.com/azure/container-apps/) | Hosts the web application frontend | [Pricing](https://azure.microsoft.com/pricing/details/container-apps/) |
@@ -80,6 +81,12 @@ Here are some developers tools to set up as prerequisites:
     azd up
     ```
     It will prompt you to provide an `azd` environment name (like "flask-app"), select a subscription from your Azure account, and select a location (like "eastus"). Then it will provision the resources in your account and deploy the latest code. If you get an error with deployment, changing the location can help, as there may be availability constraints for some of the resources.
+    
+    The deployment will automatically:
+    - Create an Azure AI Foundry project and agent
+    - Configure System Assigned managed identity for the Container App
+    - Set up the required environment variables (AZURE_AGENT_PROJECT_NAME, AZURE_AGENT_ID)
+    - Grant necessary permissions for the managed identity to access Azure AI services
 
 4. When `azd` has finished deploying, you'll see an endpoint URI in the command output. Visit that URI, and you should see the API output! 🎉
 
@@ -96,6 +103,7 @@ Here are some developers tools to set up as prerequisites:
 >[!NOTE]
 >- Region: swedencentral is strongly recommended due to AI Foundry availability.
 >- Post-Deployment: You can also setup ACS Event Grid subscription and PSTN to use the ACS client.
+>- The Container App uses System Assigned managed identity for secure, passwordless authentication to Azure services.
 
 <br/>
 
@@ -161,7 +169,25 @@ Once your event subscription is configured and the phone number is active:
 
 Once the environment has been deployed with `azd up` you can also run the application locally.
 
-Please follow the instructions in [the instructions in `service`](./service/README.md)
+**Environment Variables Setup:**
+
+1. Copy the `.env.sample` file to `.env` in the `server` directory:
+   ```bash
+   cp server/.env.sample server/.env
+   ```
+
+2. Fill in the required values from your Azure deployment:
+   - `AZURE_VOICE_LIVE_ENDPOINT`: Your Azure AI Services endpoint
+   - `AZURE_VOICE_LIVE_API_KEY`: Your Azure AI Services API key (for local development)
+   - `AZURE_AGENT_PROJECT_NAME`: Your Azure AI Foundry project name
+   - `AZURE_AGENT_ID`: Your Azure AI Agent ID
+   - `AZURE_VOICE_AVATAR_*`: Avatar configuration settings (optional)
+
+3. For authentication:
+   - **Local Development**: Use `AZURE_VOICE_LIVE_API_KEY` for authentication
+   - **Azure Deployment**: The Container App uses System Assigned managed identity (no API key needed)
+
+Please follow the detailed instructions in [the server README](./server/README.md)
 
 <br/>
 
