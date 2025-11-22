@@ -72,6 +72,29 @@
       cursor: not-allowed;
     }
 
+    #toggleMicBtn {
+      background-color: #7fb88d;
+      color: white;
+    }
+
+    #toggleMicBtn:hover:not(:disabled) {
+      background-color: #6fa77d;
+    }
+
+    #toggleMicBtn:disabled {
+      background-color: #b8d6c2;
+      cursor: not-allowed;
+    }
+
+    #toggleMicBtn.muted {
+      background-color: #f5f0d4;
+      color: #333;
+    }
+
+    #toggleMicBtn.muted:hover:not(:disabled) {
+      background-color: #ebe5c5;
+    }
+
     #toggleTranscriptBtn:hover {
       background-color: #5a8bc1;
     }
@@ -271,6 +294,9 @@
     <button id="stopBtn" onclick="stopStreaming()" disabled title="End the conversation with the agent">
       Stop Conversation
     </button>
+    <button id="toggleMicBtn" onclick="toggleMicrophone()" disabled class="muted" title="Toggle microphone mute/unmute">
+      🎤
+    </button>
   </div>
 
   <audio id="ttsPlayer" autoplay></audio>
@@ -282,6 +308,9 @@
     let mediaStream, source, processor, socket;
     let audioContext = new AudioContext({ sampleRate: 24000 });
     let workletNode;
+
+    // Microphone control
+    let microphoneMuted = true; // Starts muted by default
 
     // Avatar variables
     let handlerId = null;
@@ -363,7 +392,8 @@
       processor.onaudioprocess = (event) => {
         const input = event.inputBuffer.getChannelData(0);
         const pcm = float32ToInt16(input);
-        if (socket?.readyState === WebSocket.OPEN) {
+        // Only send audio if microphone is not muted
+        if (!microphoneMuted && socket?.readyState === WebSocket.OPEN) {
           socket.send(pcm.buffer);
         }
       };
@@ -543,12 +573,39 @@
       document.getElementById('avatarPlaceholderOverlay').classList.remove('hidden');
     }
 
+    // ============ MICROPHONE CONTROL ============
+
+    function toggleMicrophone() {
+      const toggleMicBtn = document.getElementById('toggleMicBtn');
+
+      if (microphoneMuted) {
+        // Unmute
+        microphoneMuted = false;
+        toggleMicBtn.classList.remove('muted');
+        toggleMicBtn.textContent = '🎤';
+        log('Microphone unmuted - you can now speak');
+      } else {
+        // Mute
+        microphoneMuted = true;
+        toggleMicBtn.classList.add('muted');
+        toggleMicBtn.textContent = '🎤';
+        log('Microphone muted');
+      }
+    }
+
     // ============ WEBSOCKET FUNCTIONS ============
 
     function stopStreaming() {
       stopPlayback();
       document.getElementById("startBtn").disabled = false;
       document.getElementById("stopBtn").disabled = true;
+
+      // Reset microphone state
+      microphoneMuted = true;
+      const toggleMicBtn = document.getElementById("toggleMicBtn");
+      toggleMicBtn.disabled = true;
+      toggleMicBtn.classList.add('muted');
+      toggleMicBtn.textContent = '🎤';
 
       // Teardown avatar if active
       if (avatarReady || peerConnection) {
@@ -577,10 +634,13 @@
           await startMicrophone();
           document.getElementById("startBtn").disabled = true;
           document.getElementById("stopBtn").disabled = false;
+          document.getElementById("toggleMicBtn").disabled = false;
+          log("Microphone is MUTED by default - click 'Unmute Mic' to speak");
         } catch (error) {
           console.error("Failed to start microphone:", error);
           document.getElementById("startBtn").disabled = false;
           document.getElementById("stopBtn").disabled = true;
+          document.getElementById("toggleMicBtn").disabled = true;
           socket.close();
         }
       };
@@ -669,6 +729,14 @@
         teardownAvatar();
         document.getElementById("startBtn").disabled = false;
         document.getElementById("stopBtn").disabled = true;
+
+        // Reset microphone state
+        microphoneMuted = true;
+        const toggleMicBtn = document.getElementById("toggleMicBtn");
+        toggleMicBtn.disabled = true;
+        toggleMicBtn.classList.add('muted');
+        toggleMicBtn.textContent = '🎤';
+
         document.getElementById('avatarSection').classList.remove('visible');
         handlerId = null;
         avatarIceServers = [];
