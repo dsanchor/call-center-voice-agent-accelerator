@@ -47,9 +47,8 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: rgba(255, 255, 255, 0.05);
+      background: transparent;
       border-radius: 1rem;
-      backdrop-filter: blur(10px);
     }
 
     .audio-bars {
@@ -190,8 +189,15 @@
     }
 
     @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(5px); }
-      to { opacity: 1; transform: translateY(0); }
+      from {
+        opacity: 0;
+        transform: translateY(5px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
     .user-message {
@@ -380,12 +386,12 @@
           // Create symmetrical pattern - map bars from center outward
           const centerIndex = (barCount - 1) / 2;
           const distanceFromCenter = Math.abs(index - centerIndex);
-          
+
           // Use lower frequencies for center bars, higher for edges
           const freqIndex = Math.floor(distanceFromCenter * dataPerBar);
           const start = freqIndex;
           const end = Math.min(start + dataPerBar, frequencyData.length);
-          
+
           let sum = 0;
           for (let i = start; i < end; i++) {
             sum += frequencyData[i];
