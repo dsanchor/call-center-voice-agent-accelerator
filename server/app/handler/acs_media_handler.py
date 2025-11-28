@@ -13,7 +13,7 @@ from websockets.typing import Data
 logger = logging.getLogger(__name__)
 
 
-def session_config():
+def session_config(voice_name="es-ES-Ximena:DragonHDLatestNeural"):
     """Returns the default session configuration for Voice Live."""
     return {
         "type": "session.update",
@@ -37,7 +37,7 @@ def session_config():
                 "type": "server_echo_cancellation"
             },
             "voice": {
-                "name": self.voice_name,
+                "name": voice_name,
                 "type": "azure-standard",
                 "temperature": 0.8,
             },
@@ -55,13 +55,13 @@ class ACSMediaHandler:
         self.api_key = config["AZURE_VOICE_LIVE_API_KEY"]
         self.agent_project_name = config["AZURE_AGENT_PROJECT_NAME"]
         self.agent_id = config["AZURE_AGENT_ID"]
+        self.voice_name = config.get("AZURE_VOICE_NAME", "es-ES-Ximena:DragonHDLatestNeural")
         # self.client_id = config["AZURE_USER_ASSIGNED_IDENTITY_CLIENT_ID"]
         self.send_queue = asyncio.Queue()
         self.ws = None
         self.send_task = None
         self.incoming_websocket = None
         self.is_raw_audio = True
-        self.voice_name = config["AZURE_VOICE_NAME"]
 
     def _generate_guid(self):
         return str(uuid.uuid4())
@@ -86,7 +86,7 @@ class ACSMediaHandler:
         self.ws = await ws_connect(url, additional_headers=headers)
         logger.info("[VoiceLiveACSHandler] Connected to Voice Live API")
 
-        await self._send_json(session_config())
+        await self._send_json(session_config(self.voice_name))
         await self._send_json({"type": "response.create"})
 
         asyncio.create_task(self._receiver_loop())

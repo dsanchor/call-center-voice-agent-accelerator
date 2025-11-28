@@ -20,9 +20,10 @@ app.config["ACS_DEV_TUNNEL"] = os.getenv("ACS_DEV_TUNNEL", "")
 app.config["AZURE_USER_ASSIGNED_IDENTITY_CLIENT_ID"] = os.getenv(
     "AZURE_USER_ASSIGNED_IDENTITY_CLIENT_ID", ""
 )
+app.config["AZURE_VOICE_NAME"] = os.getenv(
+    "AZURE_VOICE_NAME", "es-ES-Ximena:DragonHDLatestNeural"
+)
 app.config["ENABLE_ACS"] = os.getenv("ENABLE_ACS", "false").lower()
-app.config["AZURE_VOICE_NAME"] = os.getenv("AZURE_VOICE_NAME", "es-ES-XimenaMultilingualNeural")
-
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s: %(message)s"
