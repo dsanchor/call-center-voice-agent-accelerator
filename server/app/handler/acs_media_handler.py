@@ -61,7 +61,7 @@ class ACSMediaHandler:
         self.send_task = None
         self.incoming_websocket = None
         self.is_raw_audio = True
-        self.voice_name = config.("AZURE_VOICE_NAME")
+        self.voice_name = config["AZURE_VOICE_NAME"]
 
     def _generate_guid(self):
         return str(uuid.uuid4())
