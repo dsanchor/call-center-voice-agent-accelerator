@@ -37,7 +37,7 @@ def session_config():
                 "type": "server_echo_cancellation"
             },
             "voice": {
-                "name": "es-ES-Ximena:DragonHDLatestNeural",
+                "name": "es-ES-XimenaMultilingualNeural",
                 "type": "azure-standard",
                 "temperature": 0.8,
             },
