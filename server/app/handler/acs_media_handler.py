@@ -37,7 +37,7 @@ def session_config():
                 "type": "server_echo_cancellation"
             },
             "voice": {
-                "name": config.get("AZURE_VOICE_NAME", "es-ES-XimenaMultilingualNeural"),
+                "name": self.voice_name,
                 "type": "azure-standard",
                 "temperature": 0.8,
             },
@@ -61,6 +61,7 @@ class ACSMediaHandler:
         self.send_task = None
         self.incoming_websocket = None
         self.is_raw_audio = True
+        self.voice_name = config.("AZURE_VOICE_NAME")
 
     def _generate_guid(self):
         return str(uuid.uuid4())
