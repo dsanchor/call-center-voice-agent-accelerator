@@ -37,7 +37,7 @@ docker run -p 8000:8000 \
   -e AZURE_VOICE_LIVE_ENDPOINT="your-endpoint" \
   -e VOICE_LIVE_MODEL="gpt-4o-mini" \
   -e AZURE_AGENT_PROJECT_NAME="your-project-name" \
-  -e AZURE_AGENT_ID="your-agent-id" \
+  -e AZURE_AGENT_NAME="your-agent-name" \
   -e ACS_CONNECTION_STRING="your-acs-connection" \
   ghcr.io/dsanchor/call-center-voice-agent-accelerator/voice-live-agent:latest
 ```

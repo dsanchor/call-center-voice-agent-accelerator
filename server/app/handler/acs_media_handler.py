@@ -54,7 +54,7 @@ class ACSMediaHandler:
         self.model = config["VOICE_LIVE_MODEL"]
         self.api_key = config["AZURE_VOICE_LIVE_API_KEY"]
         self.agent_project_name = config["AZURE_AGENT_PROJECT_NAME"]
-        self.agent_id = config["AZURE_AGENT_ID"]
+        self.agent_name = config["AZURE_AGENT_NAME"]
         # self.client_id = config["AZURE_USER_ASSIGNED_IDENTITY_CLIENT_ID"]
         self.send_queue = asyncio.Queue()
         self.ws = None
@@ -75,7 +75,7 @@ class ACSMediaHandler:
         # log token
         logger.info(f"Using Azure AD token for {scopes}: {token.token}")
 
-        url = f"{self.endpoint}/voice-live/realtime?api-version=2025-10-01&agent-project-name={self.agent_project_name}&agent-id={self.agent_id}&agent-access-token={token.token}"
+        url = f"{self.endpoint}/voice-live/realtime?api-version=2025-10-01&agent-project-name={self.agent_project_name}&agent-name={self.agent_name}&agent-access-token={token.token}"
         url = url.replace("https://", "wss://")
 
         headers = {"x-ms-client-request-id": self._generate_guid()}
