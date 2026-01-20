@@ -70,7 +70,8 @@ class ACSMediaHandler:
 
         credential = DefaultAzureCredential()
         scopes = "https://ai.azure.com/.default"
-        token = await credential.get_token(scopes)
+        async with DefaultAzureCredential() as credential:
+            token = await credential.get_token(scopes)
 
         # log token
         logger.info(f"Using Azure AD token for {scopes}: {token.token}")
