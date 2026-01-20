@@ -13,39 +13,6 @@ from websockets.typing import Data
 logger = logging.getLogger(__name__)
 
 
-def session_config():
-    """Returns the default session configuration for Voice Live."""
-    return {
-        "type": "session.update",
-        "session": {
-            "turn_detection": {
-                "type": "azure_semantic_vad",
-                "threshold": 0.3,
-                "prefix_padding_ms": 200,
-                "silence_duration_ms": 200,
-                "remove_filler_words": False,
-                "end_of_utterance_detection": {
-                    "model": "semantic_detection_v1",
-                    "threshold": 0.01,
-                    "timeout": 2,
-                },
-            },
-            "input_audio_noise_reduction": {
-                "type": "azure_deep_noise_suppression"
-            },
-            "input_audio_echo_cancellation": {
-                "type": "server_echo_cancellation"
-            },
-            "voice": {
-                "name": "es-ES-Ximena:DragonHDLatestNeural",
-                "type": "azure-standard",
-                "temperature": 0.8,
-            },
-        },
-        "event_id": ""
-    }
-
-
 class ACSMediaHandler:
     """Manages audio streaming between client and Azure Voice Live API."""
 
@@ -55,12 +22,45 @@ class ACSMediaHandler:
         self.api_key = config["AZURE_VOICE_LIVE_API_KEY"]
         self.agent_project_name = config["AZURE_AGENT_PROJECT_NAME"]
         self.agent_name = config["AZURE_AGENT_NAME"]
+        self.voice_name = config["AZURE_VOICE_NAME"]
         # self.client_id = config["AZURE_USER_ASSIGNED_IDENTITY_CLIENT_ID"]
         self.send_queue = asyncio.Queue()
         self.ws = None
         self.send_task = None
         self.incoming_websocket = None
         self.is_raw_audio = True
+
+    def session_config(self):
+        """Returns the default session configuration for Voice Live."""
+        return {
+            "type": "session.update",
+            "session": {
+                "turn_detection": {
+                    "type": "azure_semantic_vad",
+                    "threshold": 0.3,
+                    "prefix_padding_ms": 200,
+                    "silence_duration_ms": 200,
+                    "remove_filler_words": False,
+                    "end_of_utterance_detection": {
+                        "model": "semantic_detection_v1",
+                        "threshold": 0.01,
+                        "timeout": 2,
+                    },
+                },
+                "input_audio_noise_reduction": {
+                    "type": "azure_deep_noise_suppression"
+                },
+                "input_audio_echo_cancellation": {
+                    "type": "server_echo_cancellation"
+                },
+                "voice": {
+                    "name": self.voice_name,
+                    "type": "azure-standard",
+                    "temperature": 0.8,
+                },
+            },
+            "event_id": ""
+        }
 
     def _generate_guid(self):
         return str(uuid.uuid4())
@@ -86,7 +86,7 @@ class ACSMediaHandler:
         self.ws = await ws_connect(url, additional_headers=headers)
         logger.info("[VoiceLiveACSHandler] Connected to Voice Live API")
 
-        await self._send_json(session_config())
+        await self._send_json(self.session_config())
         await self._send_json({"type": "response.create"})
 
         asyncio.create_task(self._receiver_loop())
